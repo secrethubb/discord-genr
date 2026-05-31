@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Discord Account Generator</title>
+    <style>
+        * { margin:0; padding:0; box-sizing:border-box; }
+        body { font-family:'Segoe UI',sans-serif; background:#1a1a2e; color:#e0e0e0; padding:20px; }
+        .container { max-width:600px; margin:0 auto; }
+        h1 { text-align:center; color:#5865F2; margin-bottom:20px; }
+        .card { background:#16213e; border-radius:12px; padding:20px; margin-bottom:15px; border:1px solid #2a2a4a; }
+        input, select {
+            width:100%; padding:10px; margin-bottom:10px; font-size:16px;
+            background:#0f3460; border:1px solid #2a2a4a; border-radius:8px; color:#fff;
+        }
+        .btn {
+            background:#5865F2; color:white; border:none; padding:12px; font-size:16px;
+            border-radius:8px; width:100%; cursor:pointer; font-weight:600;
+        }
+        .btn:hover { background:#4752c4; }
+        .btn:disabled { background:#444; cursor:not-allowed; }
+        .btn-green { background:#3ba55c; }
+        .btn-red { background:#ed4245; }
+        .log {
+            background:#0f3460; border:1px solid #2a2a4a; border-radius:8px; padding:10px;
+            max-height:300px; overflow-y:auto; font-family:monospace; font-size:14px;
+        }
+        .success { color:#3ba55c; }
+        .error { color:#ed4245; }
+        .info { color:#faa81a; }
+        .flex { display:flex; gap:10px; }
+        .flex .btn { width:auto; }
+        .stat-box {
+            display:inline-block; background:#0f3460; padding:10px 20px; border-radius:8px;
+            margin:5px; text-align:center; border:1px solid #2a2a4a;
+        }
+        .stat-num { font-size:24px; font-weight:bold; color:#5865F2; }
+        .stat-lbl { font-size:12px; color:#888; }
+        .hidden { display:none; }
+        #captchaBox {
+            background:#0f3460; border:1px solid #faa81a; border-radius:8px;
+            padding:15px; margin-bottom:10px;
+        }
+        @media(max-width:480px) {
+            .flex { flex-direction:column; }
+            .flex .btn { width:100%; }
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>Discord Account Generator</h1>
+    
+    <div style="text-align:center;margin-bottom:15px;">
+        <div class="stat-box"><div class="stat-num" id="totalCount">0</div><div class="stat-lbl">Total Generated</div></div>
+        <div class="stat-box"><div class="stat-num" id="sessionCount">0</div><div class="stat-lbl">This Session</div></div>
+    </div>
+
+    <div class="card">
+        <label style="color:#888;font-size:13px;">Number of accounts:</label>
+        <input type="number" id="count" value="3" min="1" max="20">
+        
+        <label style="color:#888;font-size:13px;">Proxy (optional):</label>
+        <input type="text" id="proxy" placeholder="http://user:pass@ip:port or leave empty">
+        
+        <label style="color:#888;font-size:13px;">Captcha mode:</label>
+        <select id="captchaMode">
+            <option value="manual">Manual (you solve hCaptcha)</option>
+            <option value="capmonster">Auto (CapMonster API key)</option>
+        </select>
+
+        <div id="captchaBox" class="hidden">
+            <p style="color:#faa81a;margin-bottom:8px;">Open <a href="https://discord.com/register" target="_blank" style="color:#5865F2;">discord.com/register</a> in a new tab, solve the hCaptcha, then copy the response key and paste below:</p>
+            <div class="flex">
+                <input type="text" id="captchaInput" placeholder="Paste captcha response" style="flex:1;margin:0;">
+                <button class="btn" onclick="submitCaptcha()" style="width:auto;background:#faa81a;color:#000;">Submit</button>
+            </div>
+        </div>
+
+        <div id="capmonsterBox" class="hidden">
+            <input type="text" id="capmonsterKey" placeholder="Enter CapMonster API key">
+        </div>
+
+        <button class="btn" id="startBtn" onclick="startGeneration()">Generate Accounts</button>
+    </div>
+
+    <div class="card">
+        <h2 style="color:#5865F2;font-size:18px;margin-bottom:10px;">Check Token</h2>
+        <div class="flex">
+            <input type="text" id="checkToken" placeholder="Paste Discord token" style="flex:1;margin:0;">
+            <button class="btn btn-green" onclick="checkToken()" style="width:auto;">Check</button>
+        </div>
+        <div id="checkResult" style="margin-top:8px;font-weight:bold;"></div>
+    </div>
+
+    <div class="card">
+        <div class="flex">
+            <button class="btn btn-green" onclick="downloadAccounts()">Download All Tokens</button>
+            <button class="btn btn-red" onclick="clearLog()">Clear Log</button>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2 style="color:#5865F2;font-size:18px;margin-bottom:10px;">Log</h2>
+        <div class="log" id="log">Ready. Configure your settings and click Generate.</div>
+    </div>
+</div>
+
+<script>
+let captchaKey = null;
+let sessionCount = 0;
+
+// Toggle captcha input boxes
+document.getElementById('captchaMode').addEventListener('change', function() {
+    document.getElementById('captchaBox').classList.add('hidden');
+    document.getElementById('capmonsterBox').classList.add('hidden');
+    if (this.value === 'manual') {
+        document.getElementById('captchaBox').classList.remove('hidden');
+    } else if (this.value === 'capmonster') {
+        document.getElementById('capmonsterBox').classList.remove('hidden');
+    }
+});
+
+function addLog(msg, type) {
+    const log = document.getElementById('log');
+    const d = document.createElement('div');
+    d.className = type || 'info';
+    d.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+    log.appendChild(d);
+    log.scrollTop = log.scrollHeight;
+}
+
+function clearLog() {
+    document.getElementById('log').innerHTML = 'Cleared.';
+    sessionCount = 0;
+    document.getElementById('sessionCount').textContent = '0';
+}
+
+function submitCaptcha() {
+    const val = document.getElementById('captchaInput').value.trim();
+    if (val) {
+        captchaKey = val;
+        document.getElementById('captchaBox').classList.add('hidden');
+        addLog('Captcha key submitted', 'success');
+        runGenerate();
+    }
+}
+
+function downloadAccounts() {
+    const data = localStorage.getItem('discord_accounts') || '';
+    if (!data) {
+        addLog('No accounts saved yet', 'error');
+        return;
+    }
+    const blob = new Blob([data], {type: 'text/plain'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'discord_accounts.txt';
+    a.click();
+    addLog('Accounts downloaded', 'success');
+}
+
+async function startGeneration() {
+    const mode = document.getElementById('captchaMode').value;
+    
+    if (mode === 'capmonster') {
+        const key = document.getElementById('capmonsterKey').value.trim();
+        if (!key) {
+            addLog('Enter your CapMonster API key first', 'error');
+            return;
+        }
+        addLog('Solving captcha via CapMonster...', 'info');
+        try {
+            const taskResp = await fetch('https://api.capmonster.cloud/createTask', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    clientKey: key,
+                    task: {
+                        type: 'HCaptchaTaskProxyless',
+                        websiteURL: 'https://discord.com/channels/@me',
+                        websiteKey: '4c672d35-0701-42b2-88c3-78380b0db566'
+                    }
+                })
+            });
+            const taskData = await taskResp.json();
+            const taskId = taskData.taskId;
+            
+            // Poll for result
+            for (let i = 0; i < 30; i++) {
+                await new Promise(r => setTimeout(r, 3000));
+                const resultResp = await fetch('https://api.capmonster.cloud/getTaskResult', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({clientKey: key, taskId: taskId})
+                });
+                const resultData = await resultResp.json();
+                if (resultData.status === 'ready') {
+                    captchaKey = resultData.solution.gRecaptchaResponse;
+                    addLog('Captcha solved automatically', 'success');
+                    runGenerate();
+                    return;
+                }
+            }
+            addLog('Captcha solving timed out', 'error');
+        } catch(e) {
+            addLog('CapMonster error: ' + e.message, 'error');
+        }
+    } else {
+        document.getElementById('captchaBox').classList.remove('hidden');
+        addLog('Solve the captcha on discord.com/register and paste the key', 'info');
+    }
+}
+
+async function runGenerate() {
+    const btn = document.getElementById('startBtn');
+    btn.disabled = true;
+    btn.textContent = 'Generating...';
+    
+    const count = parseInt(document.getElementById('count').value) || 3;
+    const proxy = document.getElementById('proxy').value.trim() || null;
+    
+    for (let i = 0; i < count; i++) {
+        addLog(`Creating account ${i+1}/${count}...`, 'info');
+        
+        const username = randomString(8) + '_' + Math.floor(Math.random() * 900 + 100);
+        const email = randomString(12) + '@temp-mail.org';
+        const password = randomString(16);
+        const dob = `${Math.floor(Math.random() * 12) + 1}-${Math.floor(Math.random() * 28) + 1}-${Math.floor(Math.random() * 16) + 1985}`;
+        
+        try {
+            // Get fingerprint
+            const fpReq = await fetch('https://discord.com/api/v9/experiments', {
+                headers: {
+                    'Content-Type': 'application/json',
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                }
+            });
+            const fpData = await fpReq.json();
+            const fingerprint = fpData.fingerprint;
+            
+            if (!fingerprint) {
+                addLog(`#${i+1} Failed: Could not get fingerprint`, 'error');
+                continue;
+            }
+            
+            // Register
+            const regResp = await fetch('https://discord.com/api/v9/auth/register', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                },
+                body: JSON.stringify({
+                    fingerprint: fingerprint,
+                    email: email,
+                    username: username,
+                    password: password,
+                    consent: true,
+                    date_of_birth: dob,
+                    captcha_key: captchaKey
+                })
+            });
+            
+            if (regResp.status === 201) {
+                const regData = await regResp.json();
+                const token = regData.token;
+                const line = `${email}:${password}:${token}\n`;
+                
+                // Save to localStorage
+                const existing = localStorage.getItem('discord_accounts') || '';
+                localStorage.setItem('discord_accounts', existing + line);
+                
+                sessionCount++;
+                document.getElementById('sessionCount').textContent = sessionCount;
+                document.getElementById('totalCount').textContent = sessionCount;
+                
+                addLog(`#${i+1} Account created!`, 'success');
+            } else if (regResp.status === 400) {
+                const errData = await regResp.json();
+                if (JSON.stringify(errData).toLowerCase().includes('captcha')) {
+                    addLog(`#${i+1} Requires new captcha key`, 'error');
+                    break;
+                }
+                addLog(`#${i+1} Failed: ${JSON.stringify(errData).slice(0,100)}`, 'error');
+            } else {
+                addLog(`#${i+1} Failed: HTTP ${regResp.status}`, 'error');
+            }
+        } catch(e) {
+            addLog(`#${i+1} Error: ${e.message.slice(0,80)}`, 'error');
+        }
+        
+        // Wait between accounts
+        if (i < count - 1) {
+            await new Promise(r => setTimeout(r, 3000 + Math.random() * 4000));
+        }
+    }
+    
+    captchaKey = null;
+    btn.disabled = false;
+    btn.textContent = 'Generate Accounts';
+    addLog('Done generating accounts', 'info');
+}
+
+function randomString(len) {
+    const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+    let result = '';
+    for (let i = 0; i < len; i++) {
+        result += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return result;
+}
+
+async function checkToken() {
+    const token = document.getElementById('checkToken').value.trim();
+    if (!token) return;
+    
+    try {
+        const resp = await fetch('https://discord.com/api/v9/users/@me', {
+            headers: {'Authorization': token}
+        });
+        if (resp.status === 200) {
+            const data = await resp.json();
+            document.getElementById('checkResult').innerHTML = '<span style="color:#3ba55c;">Valid - ' + data.email + '</span>';
+        } else {
+            document.getElementById('checkResult').innerHTML = '<span style="color:#ed4245;">Invalid token</span>';
+        }
+    } catch(e) {
+        document.getElementById('checkResult').innerHTML = '<span style="color:#ed4245;">Error checking token</span>';
+    }
+}
+</script>
+</body>
+</html>
